@@ -3,6 +3,8 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const authenticateJWT = require("../middleware/authMiddleware");
 require("dotenv").config();
+const RoomModel = require('../models/Room'); // New Room model
+
 
 const registerUser = async (req, res) => {
   let { name, email, password } = req.body;
@@ -69,7 +71,7 @@ const Login = async (req, res) => {
     // Return success message
     res.status(200).json({
       message: "Login successful",
-      user: { name: user.name, email: user.email },
+      user: {id: user._id, name: user.name, email: user.email },
     });
 
   } catch (err) {
@@ -108,10 +110,46 @@ const checkSession =  (req, res) => {
 const dashboard = (req, res) => {
   res.status(200).json({ message: "Dashboard" });
 };
+
+const GetRooms =  (req, res) => {
+  const userId = req.session?.user.id;  
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  RoomModel.find({ users: userId }) // Fetch all rooms that include the user
+    .then((rooms) => {
+      res.json(rooms); // Return rooms with their ids
+    })
+    .catch((err) => {
+      console.error('Error fetching rooms:', err);
+      res.status(500).json({ error: 'Failed to fetch rooms' });
+    });
+}
+const AddRoom = async (req, res) => {
+  try {
+    const { name, users } = req.body;
+
+    // Create a new room
+    const room = new RoomModel({
+      name,
+      users,  // Array of user IDs
+    });
+
+    await room.save();
+    res.status(201).json(room);
+  } catch (error) {
+    console.error('Error creating room:', error);
+    res.status(500).json({ error: 'Failed to create room' });
+  }
+}
+
 module.exports = {
   registerUser,
   Login,
   Logout,
   checkSession,
   dashboard,
+  GetRooms,
+  AddRoom,
 };

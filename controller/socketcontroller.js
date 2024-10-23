@@ -1,52 +1,108 @@
 const MessageModal = require('../models/ModalMessage');
+const User = require('../models/User');
+const Room = require('../models/Room'); // New Room model
+
+const connectedUsers = {}; // Store connected users by session ID
+
 module.exports = (socket) => {
-    const userSession = socket.request.session?.user; // Access user session
-  
-    if (!userSession) {
-      console.log("Unauthorized user.");
-      socket.disconnect(); // Disconnect unauthenticated users
-      return;
-    }
-  
-    console.log(`${userSession.name} connected`);
-  
-    MessageModal.find({})
-    .sort({ timestamp: 1 }) // Sort by timestamp in ascending order
-    .limit(50) // Limit to last 50 messages
-    .then((messages) => {
-      socket.emit('previousMessages', messages);
-    })
-    .catch((err) => {
-      console.error('Error fetching messages from DB:', err);
-    });
+  const userSession = socket.request.session?.user;
 
-    // Listen for 'message' event from client
-    socket.on('message', async (msg) => {
-      console.log('Message received:', msg);
+  if (!userSession) {
+    console.log("Unauthorized user.");
+    socket.disconnect();
+    return;
+  }
 
+  // Mark the user as connected
+  connectedUsers[userSession.id] = socket.id;
 
-      try {
-        const newMessage = new MessageModal({
-          user: userSession.name,  // Username from the session
-          message: msg,            // Message content
-        });
-        await newMessage.save(); // Save the message to the database
-        console.log('Message saved to DB:', newMessage);
-      // Broadcast the message along with the user's name
-      socket.broadcast.emit('message', { user: userSession.name, message: msg });
-      } catch (error) {
-        console.error('Error saving message:', error);
+  console.log(`${userSession.name} connected`);
+
+  // Listen for a 'joinRoom' event to join a specific room by roomID
+  socket.on('joinRoom', async ({ roomId }) => {
+    try {
+      // Fetch the room by roomId
+      const room = await Room.findById(roomId).populate('users');
+
+      if (!room) {
+        console.log(`Room with ID ${roomId} not found.`);
+        return;
       }
-    });
-  
-    // Handle typing event
-    socket.on('typing', () => {
-      socket.broadcast.emit('typing', `${userSession.name} is typing...`);
-    });
-  
-    // Handle disconnect event
-    socket.on('disconnect', () => {
-      console.log(`${userSession.name} disconnected`);
-    });
-  };
-  
+
+      // Check if the user is a member of the room
+      const isMember = room.users.some((user) => user._id.equals(userSession.id));
+
+      if (!isMember) {
+        console.log(`${userSession.name} is not a member of the room ${roomId}`);
+        return;
+      }
+
+      // Join the room
+      socket.join(roomId);
+      console.log(`${userSession.name} joined room: ${room.name}`);
+
+      // Fetch previous messages for this room from the DB
+      const messages = await MessageModal.find({ room: roomId })
+        .sort({ timestamp: 1 })
+        .limit(50)
+        .populate('user');
+
+      const formattedMessages = messages.map((msg) => ({
+        user: msg.user.name,
+        message: msg.message,
+        timestamp: msg.timestamp,
+      }));
+
+      // Send previous messages of this room to the user
+      socket.emit('previousMessages', formattedMessages);
+    } catch (err) {
+      console.error('Error joining room:', err);
+    }
+  });
+
+  // Listen for 'message' event from the client (within the room)
+  socket.on('message', async ({ roomId, msg }) => {
+    console.log(`Message received in room ${roomId}:`, msg);
+
+    try {
+      const user = await User.findById(userSession.id);
+
+      if (!user) {
+        console.log('User not found');
+        return;
+      }
+
+      // Create a new message and save it to the database (with roomId)
+      const newMessage = new MessageModal({
+        user: userSession.id,
+        room: roomId,
+        message: msg,
+        timestamp: new Date(),
+      });
+      await newMessage.save();
+
+      // Format the message and broadcast it only to the room
+      const formattedMessage = {
+        user: user.name,
+        message: msg,
+        timestamp: newMessage.timestamp,
+      };
+
+      // Emit the message to the specific room
+      socket.to(roomId).emit('message', formattedMessage);
+    } catch (error) {
+      console.error('Error saving message:', error);
+    }
+  });
+
+  // Handle typing event
+  socket.on('typing', ({ roomId }) => {
+    socket.to(roomId).emit('typing', `${userSession.name} is typing...`);
+  });
+
+  // Handle disconnect event
+  socket.on('disconnect', () => {
+    console.log(`${userSession.name} disconnected`);
+    delete connectedUsers[userSession.id]; // Remove the user from the connected list
+  });
+};
