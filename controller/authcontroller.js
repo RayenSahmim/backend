@@ -117,7 +117,8 @@ const GetRooms =  (req, res) => {
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  RoomModel.find({ users: userId }) // Fetch all rooms that include the user
+  RoomModel.find({ users: userId })
+    .populate('users') // Fetch all rooms that include the user
     .then((rooms) => {
       res.json(rooms); // Return rooms with their ids
     })
@@ -128,11 +129,10 @@ const GetRooms =  (req, res) => {
 }
 const AddRoom = async (req, res) => {
   try {
-    const { name, users } = req.body;
+    const {  users } = req.body;
 
     // Create a new room
     const room = new RoomModel({
-      name,
       users,  // Array of user IDs
     });
 

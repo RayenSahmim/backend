@@ -22,7 +22,8 @@ module.exports = (socket) => {
   socket.on('joinRoom', async ({ roomId }) => {
     try {
       // Fetch the room by roomId
-      const room = await Room.findById(roomId).populate('users');
+      const room = await Room.findById(roomId);
+      console.log("room : ", room);
 
       if (!room) {
         console.log(`Room with ID ${roomId} not found.`);
@@ -39,7 +40,7 @@ module.exports = (socket) => {
 
       // Join the room
       socket.join(roomId);
-      console.log(`${userSession.name} joined room: ${room.name}`);
+      console.log(`${userSession.name} joined room: ${roomId}`);
 
       // Fetch previous messages for this room from the DB
       const messages = await MessageModal.find({ room: roomId })
@@ -100,6 +101,27 @@ module.exports = (socket) => {
     socket.to(roomId).emit('typing', `${userSession.name} is typing...`);
   });
 
+  socket.on('callUser', ({ roomId, offer }) => {
+    socket.to(roomId).emit('receiveCall', { from: socket.id, offer });
+  });
+  
+  socket.on('answerCall', ({ roomId, answer }) => {
+    socket.to(roomId).emit('callAnswered', { answer });
+  });
+  
+  socket.on('iceCandidate', ({ roomId, candidate }) => {
+    socket.to(roomId).emit('iceCandidate', candidate);
+    console.log("ICE candidate received:", candidate);
+  });
+
+  socket.on('declineCall', ({ roomId }) => {
+    socket.to(roomId).emit('callDeclined');
+  });
+  
+  socket.on('endCall', ({ roomId }) => {
+    socket.to(roomId).emit('callEnded');
+  });
+  
   // Handle disconnect event
   socket.on('disconnect', () => {
     console.log(`${userSession.name} disconnected`);
