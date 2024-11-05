@@ -103,7 +103,9 @@ module.exports = (socket) => {
 
   socket.on('callUser', ({ roomId, offer }) => {
     socket.to(roomId).emit('receiveCall', { from: socket.id, offer });
+    socket.to(roomId).emit('ringing', { caller: socket.id });
   });
+  
   
   socket.on('answerCall', ({ roomId, answer }) => {
     socket.to(roomId).emit('callAnswered', { answer });
