@@ -124,6 +124,25 @@ module.exports = (socket) => {
     socket.to(roomId).emit('callEnded');
   });
   
+
+  socket.on('muteAudio', ({ roomId, isMuted }) => {
+    // Broadcast audio mute/unmute state to other users in the room
+    socket.to(roomId).emit('audioMuted', {
+      user: userSession.id,
+      isMuted,
+    });
+    console.log(`${userSession.name} has ${isMuted ? 'muted' : 'unmuted'} audio in room ${roomId}`);
+  });
+
+  socket.on('muteVideo', ({ roomId, isMuted }) => {
+    // Broadcast video mute/unmute state to other users in the room
+    socket.to(roomId).emit('videoMuted', {
+      user: userSession.id,
+      isMuted,
+    });
+    console.log(`${userSession.name} has ${isMuted ? 'muted' : 'unmuted'} video in room ${roomId}`);
+  });
+  
   // Handle disconnect event
   socket.on('disconnect', () => {
     console.log(`${userSession.name} disconnected`);

@@ -66,6 +66,7 @@ const Login = async (req, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
+      ImageURL : user.ImageURL || null,
     };
 
     // Return success message
@@ -107,26 +108,34 @@ const checkSession =  (req, res) => {
 }
 
 
-const dashboard = (req, res) => {
-  res.status(200).json({ message: "Dashboard" });
-};
 
-const GetRooms =  (req, res) => {
-  const userId = req.session?.user.id;  
+
+const GetRooms = (req, res) => {
+  const userId = req.session?.user.id;
 
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
+  const search = req.query.search || ""; // Get the search term from query params, default to empty
+
   RoomModel.find({ users: userId })
-    .populate('users') // Fetch all rooms that include the user
+    .populate({
+      path: 'users',
+      match: { name: { $regex: search, $options: 'i' } }, // Use regex to match names (case-insensitive)
+    })
     .then((rooms) => {
-      res.json(rooms); // Return rooms with their ids
+      // Filter rooms where at least one user matches the search term
+      const filteredRooms = rooms.filter(room => room.users.length > 0);
+      console.log("filtred rooms : ", filteredRooms)
+      res.json(filteredRooms); // Return filtered rooms with matching users
     })
     .catch((err) => {
       console.error('Error fetching rooms:', err);
       res.status(500).json({ error: 'Failed to fetch rooms' });
     });
-}
+};
+
 const AddRoom = async (req, res) => {
   try {
     const {  users } = req.body;
@@ -149,7 +158,6 @@ module.exports = {
   Login,
   Logout,
   checkSession,
-  dashboard,
   GetRooms,
   AddRoom,
 };

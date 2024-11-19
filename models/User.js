@@ -13,7 +13,13 @@ const userschema = new mongoose.Schema({
     password : {
         type: String,
         required: true
-    }
+    },
+    ImageURL : {
+        type: String,
+
+    },
+    
+
 });
 
 // Create a model based on the schema
