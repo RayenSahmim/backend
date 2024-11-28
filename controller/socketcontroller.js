@@ -15,15 +15,30 @@ module.exports = (socket) => {
 
   // Mark the user as connected
   connectedUsers[userSession.id] = socket.id;
-
+  
   console.log(`${userSession.name} connected`);
+
+   // Broadcast online users to all connected clients
+   const broadcastOnlineUsers = () => {
+    const onlineUsers = Object.keys(connectedUsers);
+    console.log('Broadcasting online users:', onlineUsers);
+    socket.broadcast.emit('onlineUsers', onlineUsers);
+    socket.emit('onlineUsers', onlineUsers); // Send the list to the newly connected user as well
+  };
+
+  socket.on('getOnlineUsers', () => {
+    const onlineUsers = Object.keys(connectedUsers);
+    socket.emit('onlineUsers', onlineUsers);
+  });
+
+  broadcastOnlineUsers();
+
 
   // Listen for a 'joinRoom' event to join a specific room by roomID
   socket.on('joinRoom', async ({ roomId }) => {
     try {
       // Fetch the room by roomId
       const room = await Room.findById(roomId);
-      console.log("room : ", room);
 
       if (!room) {
         console.log(`Room with ID ${roomId} not found.`);
@@ -146,6 +161,9 @@ module.exports = (socket) => {
   // Handle disconnect event
   socket.on('disconnect', () => {
     console.log(`${userSession.name} disconnected`);
+    
     delete connectedUsers[userSession.id]; // Remove the user from the connected list
+    broadcastOnlineUsers(); // Update the list of online users for remaining clients
+
   });
 };

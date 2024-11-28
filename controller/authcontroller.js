@@ -127,7 +127,6 @@ const GetRooms = (req, res) => {
     .then((rooms) => {
       // Filter rooms where at least one user matches the search term
       const filteredRooms = rooms.filter(room => room.users.length > 0);
-      console.log("filtred rooms : ", filteredRooms)
       res.json(filteredRooms); // Return filtered rooms with matching users
     })
     .catch((err) => {
