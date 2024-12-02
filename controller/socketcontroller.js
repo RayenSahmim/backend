@@ -138,6 +138,20 @@ module.exports = (socket) => {
   socket.on('endCall', ({ roomId }) => {
     socket.to(roomId).emit('callEnded');
   });
+
+  socket.on('logout', () => {
+    console.log(`${userSession.name} logged out`);
+  
+    // Remove the user from the connected list
+    delete connectedUsers[userSession.id];
+  
+    // Notify all clients about the updated online users list
+    broadcastOnlineUsers();
+  
+    // Disconnect the socket explicitly
+    socket.disconnect(true);
+  });
+  
   
 
   socket.on('muteAudio', ({ roomId, isMuted }) => {
