@@ -3,6 +3,7 @@ const axios = require('axios');
 const FormData = require('form-data'); // Import the FormData library for Node.js
 const User = require('../models/User');
 const RoomModel = require('../models/Room'); // New Room model
+const { encrypt, decrypt } = require('../utils/crypto');
 
 const uploadImage = async (req, res) => {
   // Check if a file is uploaded
@@ -60,9 +61,32 @@ const getRommById = async (req, res) => {
       return res.status(404).json({ error: 'Room not found' });
     }
 
-    res.json(room);
+    // Decrypt user emails if they exist
+    const processedUsers = room.users.map(user => ({
+      _id: user.id,
+      name: decrypt(user.name),
+      email: decrypt(user.email),
+      ImageURL: user.ImageURL || null
+    }));
+
+    // Create a response object with processed users
+    const processedRoom = {
+      _id: room._id,
+      users: processedUsers,
+      // Add any other room-specific fields you want to include
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt
+    };
+
+    res.json(processedRoom);
   } catch (error) {
     console.error('Error fetching room by ID:', error);
+    
+    // Different error handling based on error type
+    if (error.kind === 'ObjectId') {
+      return res.status(400).json({ error: 'Invalid room ID format' });
+    }
+
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -77,25 +101,43 @@ const getUserById = async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    res.json({ user });
+
+    // Decrypt sensitive information before sending
+    const decryptedUser = {
+      _id: user._id,
+      name: decrypt(user.name),
+      email: decrypt(user.email) ,
+      ImageURL: user.ImageURL || null,
+    };
+
+    res.json({ user: decryptedUser });
   } catch (error) {
     console.error('Error fetching user by ID:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
+
 const updateUser = async (req, res) => {
   try {
     const userId = req.params.userId;
 
-    // Find the user by ID and update their name
-    const updatedUser = await User.findByIdAndUpdate(userId, { name: req.body.name }, { new: true });
+    // Prepare update object
+    const updatedUser = await User.findByIdAndUpdate(userId, { name: encrypt(req.body.name) }, { new: true });
 
     if (!updatedUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(updatedUser);
+    // Prepare response with decrypted email
+    const responseUser = {
+      _id: updatedUser._id,
+      name: decrypt(updatedUser.name),
+      email: decrypt(updatedUser.email) ,
+      ImageURL: updatedUser.ImageURL || null
+    };
+
+    res.json(responseUser);
   } catch (error) {
     console.error('Error updating user:', error);
     res.status(500).json({ error: 'Internal server error' });

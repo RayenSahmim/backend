@@ -2,8 +2,9 @@ const MessageModal = require("../models/ModalMessage");
 const User = require("../models/User");
 const Room = require("../models/Room"); // New Room model
 const NotificationModal = require("../models/NotificationModal");
+const { encrypt,decrypt } = require("../utils/crypto");
 
-const connectedUsers = {}; // Store connected users by session ID
+const connectedUsers = new Map(); // More efficient for large numbers of users
 
 module.exports = (socket) => {
   async function sendNotification({
@@ -21,14 +22,17 @@ module.exports = (socket) => {
       fromUser: senderName,
       fromUserId: senderId,
     });
-
+    const content = `New message : ${message}`
+    const encryptedContent = encrypt(content); // Encrypt the content
+    const type = encrypt("new_message");
     try {
+
       // Save the notification to the database
       const notification = new NotificationModal({
         user: recipientId, // Recipient
         from: senderId, // Sender
-        type: "new_message",
-        content: `New message : ${message}`,
+        type: type,
+        content: encryptedContent ,
         timestamp: new Date(),
       });
       await notification.save();
@@ -36,13 +40,13 @@ module.exports = (socket) => {
       console.log("Notification saved successfully");
 
       // Check if the recipient is connected
-      if (connectedUsers[recipientId]) {
+      if (connectedUsers.has(recipientId)) {
         try {
-          socket.to(connectedUsers[recipientId]).emit("notification", {
+          socket.to(connectedUsers.get(recipientId)).emit("notification", {
             from: senderId,
             fromName: senderName,
-            type: "new_message",
-            content: `New message : ${message}`,
+            type: type,
+            content: content,
             timestamp: new Date(),
           });
 
@@ -68,24 +72,28 @@ module.exports = (socket) => {
   }
 
   // Mark the user as connected
-  connectedUsers[userSession.id] = socket.id;
+  connectedUsers.set(userSession.id, socket.id);
 
   console.log(`${userSession.name} connected`);
 
   // Broadcast online users to all connected clients
   const broadcastOnlineUsers = () => {
-    const onlineUsers = Object.keys(connectedUsers);
-    console.log("Broadcasting online users:", onlineUsers);
+    console.log("connectedUsers", connectedUsers);
+    const onlineUsers = Array.from(connectedUsers.keys());
     socket.broadcast.emit("onlineUsers", onlineUsers);
-    socket.emit("onlineUsers", onlineUsers); // Send the list to the newly connected user as well
+    socket.emit("onlineUsers", onlineUsers);
+    
   };
 
   socket.on("getOnlineUsers", () => {
-    const onlineUsers = Object.keys(connectedUsers);
+    const onlineUsers = Array.from(connectedUsers.keys());
     socket.emit("onlineUsers", onlineUsers);
   });
 
   broadcastOnlineUsers();
+
+
+
 
   // Listen for a 'joinRoom' event to join a specific room by roomID
   socket.on("joinRoom", async ({ roomId }) => {
@@ -121,8 +129,8 @@ module.exports = (socket) => {
         .populate("user");
 
       const formattedMessages = messages.map((msg) => ({
-        user: msg.user.name,
-        message: msg.message,
+        user: decrypt(msg.user.name),
+        message: decrypt(msg.message),
         timestamp: msg.timestamp,
       }));
 
@@ -133,16 +141,21 @@ module.exports = (socket) => {
     }
   });
 
+  
+
   // Listen for 'message' event from the client (within the room)
   socket.on("message", async ({ roomId, msg }) => {
     console.log(`Message received in room ${roomId}:`, msg);
     console.log("Current user session:", userSession);
 
     try {
-      const user = await User.findById(userSession.id);
+      const [user, room] = await Promise.all([
+        User.findById(userSession.id),
+        Room.findById(roomId).populate("users")
+      ]);
 
-      if (!user) {
-        console.error("User not found for ID:", userSession.id);
+      if (!user || !room) {
+        console.error("User or room not found");
         return;
       }
 
@@ -150,7 +163,7 @@ module.exports = (socket) => {
       const newMessage = new MessageModal({
         user: userSession.id,
         room: roomId,
-        message: msg,
+        message: encrypt(msg), // Encrypt the msg,
         timestamp: new Date(),
       });
       await newMessage.save();
@@ -164,13 +177,7 @@ module.exports = (socket) => {
 
       socket.to(roomId).emit("message", formattedMessage);
 
-      // Fetch the room to get other users
-      const room = await Room.findById(roomId).populate("users");
-
-      if (!room) {
-        console.error(`Room not found with ID: ${roomId}`);
-        return;
-      }
+      
 
       // Send notifications to other users in the room
       const otherUsers = room.users.filter(
@@ -183,16 +190,17 @@ module.exports = (socket) => {
       );
       console.log("Connected users:", connectedUsers);
 
-      for (const recipient of otherUsers) {
-        await sendNotification({
+      const notificationPromises = otherUsers.map(recipient => 
+        sendNotification({
           recipient,
           rommId: room._id.toString(),
           senderId: userSession.id,
           senderName: userSession.name,
           message: msg,
           connectedUsers,
-        });
-      }
+        })
+      );
+      await Promise.all(notificationPromises);
     } catch (error) {
       console.error("Complete error in message handling:", error);
     }
@@ -229,7 +237,7 @@ module.exports = (socket) => {
     console.log(`${userSession.name} logged out`);
 
     // Remove the user from the connected list
-    delete connectedUsers[userSession.id];
+    connectedUsers.delete(userSession.id);
 
     // Notify all clients about the updated online users list
     broadcastOnlineUsers();
@@ -298,7 +306,7 @@ module.exports = (socket) => {
   socket.on("disconnect", () => {
     console.log(`${userSession.name} disconnected`);
 
-    delete connectedUsers[userSession.id]; // Remove the user from the connected list
+    connectedUsers.delete(userSession.id); // Remove the user from the connected list
     broadcastOnlineUsers(); // Update the list of online users for remaining clients
   });
 };
